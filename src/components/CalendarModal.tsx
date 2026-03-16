@@ -416,6 +416,16 @@ export default function CalendarModal() {
   const touchStartYRef = useRef<number | null>(null);
   const touchCurrentYRef = useRef<number | null>(null);
 
+  // ── Drag-to-move state ──
+  const [draggingEvent, setDraggingEvent] = useState<CalendarEvent | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [touchDragPos, setTouchDragPos] = useState<{ x: number; y: number } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const touchDraggingRef = useRef(false);
+  const edgeScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const edgeScrollActiveRef = useRef<'left' | 'right' | null>(null);
+
   // ── Cat physics ──
   const totalWeeksForCat = useMemo(() => {
     const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
@@ -633,6 +643,7 @@ export default function CalendarModal() {
   // ── Swipe to change month (slide) + vertical swipe for bottom sheet ──
   const handleSwipeStart = useCallback((e: React.TouchEvent) => {
     if (isSnapping) return;
+    if (touchDraggingRef.current) return;
     swipeStartX.current = e.touches[0].clientX;
     swipeStartY.current = e.touches[0].clientY;
     swipeDirection.current = null;
@@ -640,6 +651,7 @@ export default function CalendarModal() {
   }, [isSnapping]);
 
   const handleSwipeMove = useCallback((e: React.TouchEvent) => {
+    if (touchDraggingRef.current) return;
     if (swipeStartX.current === null || swipeStartY.current === null || isSnapping) return;
 
     const dx = e.touches[0].clientX - swipeStartX.current;
@@ -661,6 +673,7 @@ export default function CalendarModal() {
   }, [isSnapping]);
 
   const handleSwipeEnd = useCallback(() => {
+    if (touchDraggingRef.current) return;
     // 수직 스와이프 → 바텀시트 열기/닫기
     if (swipeDirection.current === 'vertical' && swipeStartY.current !== null) {
       // touchEnd에서는 터치 위치를 알 수 없으므로 lastSwipeTouchY ref 사용
@@ -767,6 +780,266 @@ export default function CalendarModal() {
       setTimeout(() => aiInputRef.current?.focus(), 320);
     }
   }, [showAiPanel]);
+
+  // ── Drag-to-move handlers ──
+  const handleDragStart = (e: React.DragEvent, event: CalendarEvent) => {
+    e.stopPropagation();
+    setDraggingEvent(event);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent, dateStr: string) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    setDropTarget(dateStr);
+
+    // Edge scroll for PC drag
+    const edgeZone = 40;
+    if (e.clientX < edgeZone && edgeScrollActiveRef.current !== 'left') {
+      if (edgeScrollTimerRef.current) clearTimeout(edgeScrollTimerRef.current);
+      edgeScrollActiveRef.current = 'left';
+      edgeScrollTimerRef.current = setTimeout(() => {
+        changeMonth(-1);
+        edgeScrollActiveRef.current = null;
+        edgeScrollTimerRef.current = null;
+        setDropTarget(null);
+      }, 800);
+    } else if (e.clientX > window.innerWidth - edgeZone && edgeScrollActiveRef.current !== 'right') {
+      if (edgeScrollTimerRef.current) clearTimeout(edgeScrollTimerRef.current);
+      edgeScrollActiveRef.current = 'right';
+      edgeScrollTimerRef.current = setTimeout(() => {
+        changeMonth(1);
+        edgeScrollActiveRef.current = null;
+        edgeScrollTimerRef.current = null;
+        setDropTarget(null);
+      }, 800);
+    } else if (e.clientX >= edgeZone && e.clientX <= window.innerWidth - edgeZone) {
+      if (edgeScrollTimerRef.current) {
+        clearTimeout(edgeScrollTimerRef.current);
+        edgeScrollTimerRef.current = null;
+      }
+      edgeScrollActiveRef.current = null;
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDropTarget(null);
+    if (edgeScrollTimerRef.current) {
+      clearTimeout(edgeScrollTimerRef.current);
+      edgeScrollTimerRef.current = null;
+    }
+    edgeScrollActiveRef.current = null;
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetDate: string) => {
+    e.preventDefault();
+    if (edgeScrollTimerRef.current) {
+      clearTimeout(edgeScrollTimerRef.current);
+      edgeScrollTimerRef.current = null;
+    }
+    edgeScrollActiveRef.current = null;
+    setDropTarget(null);
+    if (!draggingEvent || targetDate === draggingEvent.event_date) {
+      setDraggingEvent(null);
+      return;
+    }
+
+    const prevEvents = events;
+    // Calculate date diff for multi-day events
+    const dateDiff = draggingEvent.event_end_date
+      ? (new Date(draggingEvent.event_end_date).getTime() - new Date(draggingEvent.event_date).getTime()) / 86400000
+      : null;
+    const newEndDate = dateDiff !== null
+      ? (() => {
+          const d = new Date(targetDate);
+          d.setDate(d.getDate() + dateDiff);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })()
+      : undefined;
+
+    // Optimistic update
+    setEvents(prev => prev.map(ev =>
+      ev.id === draggingEvent.id
+        ? { ...ev, event_date: targetDate, ...(newEndDate ? { event_end_date: newEndDate } : {}) }
+        : ev
+    ));
+    Object.keys(eventsCacheRef.current).forEach(key => {
+      eventsCacheRef.current[key] = eventsCacheRef.current[key].map(ev =>
+        ev.id === draggingEvent.id
+          ? { ...ev, event_date: targetDate, ...(newEndDate ? { event_end_date: newEndDate } : {}) }
+          : ev
+      );
+    });
+
+    setDraggingEvent(null);
+
+    try {
+      const body: Record<string, string> = { id: draggingEvent.id, eventDate: targetDate };
+      if (newEndDate) body.eventEndDate = newEndDate;
+      const res = await fetch('/api/calendar/events', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        // Rollback on failure
+        setEvents(prevEvents);
+        Object.keys(eventsCacheRef.current).forEach(key => {
+          eventsCacheRef.current[key] = prevEvents.filter(ev =>
+            eventsCacheRef.current[key].some(ce => ce.id === ev.id)
+          );
+        });
+      }
+    } catch {
+      setEvents(prevEvents);
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, event: CalendarEvent) => {
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    touchDraggingRef.current = false;
+
+    longPressTimerRef.current = setTimeout(() => {
+      touchDraggingRef.current = true;
+      setDraggingEvent(event);
+      setTouchDragPos({ x: touch.clientX, y: touch.clientY });
+    }, 500);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchDraggingRef.current) {
+      // Cancel long press if finger moved significantly
+      if (touchStartPosRef.current) {
+        const touch = e.touches[0];
+        const dx = touch.clientX - touchStartPosRef.current.x;
+        const dy = touch.clientY - touchStartPosRef.current.y;
+        if (Math.sqrt(dx * dx + dy * dy) > 10) {
+          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }
+      return;
+    }
+    e.preventDefault();
+    const touch = e.touches[0];
+    setTouchDragPos({ x: touch.clientX, y: touch.clientY });
+
+    // Determine which date cell is under the touch point
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const dateCell = el?.closest('[data-date]');
+    if (dateCell) {
+      const dateStr = dateCell.getAttribute('data-date');
+      if (dateStr) setDropTarget(dateStr);
+    } else {
+      setDropTarget(null);
+    }
+
+    // Edge scroll logic
+    const edgeZone = 40;
+    if (touch.clientX < edgeZone && edgeScrollActiveRef.current !== 'left') {
+      if (edgeScrollTimerRef.current) clearTimeout(edgeScrollTimerRef.current);
+      edgeScrollActiveRef.current = 'left';
+      edgeScrollTimerRef.current = setTimeout(() => {
+        changeMonth(-1);
+        edgeScrollActiveRef.current = null;
+        edgeScrollTimerRef.current = null;
+        setDropTarget(null);
+      }, 800);
+    } else if (touch.clientX > window.innerWidth - edgeZone && edgeScrollActiveRef.current !== 'right') {
+      if (edgeScrollTimerRef.current) clearTimeout(edgeScrollTimerRef.current);
+      edgeScrollActiveRef.current = 'right';
+      edgeScrollTimerRef.current = setTimeout(() => {
+        changeMonth(1);
+        edgeScrollActiveRef.current = null;
+        edgeScrollTimerRef.current = null;
+        setDropTarget(null);
+      }, 800);
+    } else if (touch.clientX >= edgeZone && touch.clientX <= window.innerWidth - edgeZone) {
+      if (edgeScrollTimerRef.current) {
+        clearTimeout(edgeScrollTimerRef.current);
+        edgeScrollTimerRef.current = null;
+      }
+      edgeScrollActiveRef.current = null;
+    }
+  };
+
+  const handleTouchEnd = async (e: React.TouchEvent) => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+
+    if (!touchDraggingRef.current || !draggingEvent) {
+      touchDraggingRef.current = false;
+      setTouchDragPos(null);
+      return;
+    }
+
+    if (edgeScrollTimerRef.current) {
+      clearTimeout(edgeScrollTimerRef.current);
+      edgeScrollTimerRef.current = null;
+    }
+    edgeScrollActiveRef.current = null;
+    touchDraggingRef.current = false;
+    setTouchDragPos(null);
+
+    const touch = e.changedTouches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const dateCell = el?.closest('[data-date]');
+    const targetDate = dateCell?.getAttribute('data-date') ?? null;
+
+    setDropTarget(null);
+
+    if (!targetDate || targetDate === draggingEvent.event_date) {
+      setDraggingEvent(null);
+      return;
+    }
+
+    const prevEvents = events;
+    const dateDiff = draggingEvent.event_end_date
+      ? (new Date(draggingEvent.event_end_date).getTime() - new Date(draggingEvent.event_date).getTime()) / 86400000
+      : null;
+    const newEndDate = dateDiff !== null
+      ? (() => {
+          const d = new Date(targetDate);
+          d.setDate(d.getDate() + dateDiff);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })()
+      : undefined;
+
+    setEvents(prev => prev.map(ev =>
+      ev.id === draggingEvent.id
+        ? { ...ev, event_date: targetDate, ...(newEndDate ? { event_end_date: newEndDate } : {}) }
+        : ev
+    ));
+    Object.keys(eventsCacheRef.current).forEach(key => {
+      eventsCacheRef.current[key] = eventsCacheRef.current[key].map(ev =>
+        ev.id === draggingEvent.id
+          ? { ...ev, event_date: targetDate, ...(newEndDate ? { event_end_date: newEndDate } : {}) }
+          : ev
+      );
+    });
+
+    setDraggingEvent(null);
+
+    try {
+      const body: Record<string, string> = { id: draggingEvent.id, eventDate: targetDate };
+      if (newEndDate) body.eventEndDate = newEndDate;
+      const res = await fetch('/api/calendar/events', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        setEvents(prevEvents);
+      }
+    } catch {
+      setEvents(prevEvents);
+    }
+  };
 
   // ── AI submit ──
   const handleAiSubmit = async () => {
@@ -1429,6 +1702,11 @@ export default function CalendarModal() {
           return (
             <div
               key={`${seg.event.id}-${seg.startCol}`}
+              draggable={true}
+              onDragStart={(e) => handleDragStart(e, seg.event as CalendarEvent)}
+              onTouchStart={(e) => handleTouchStart(e, seg.event as CalendarEvent)}
+              onTouchMove={(e) => handleTouchMove(e)}
+              onTouchEnd={(e) => handleTouchEnd(e)}
               style={{
                 position: 'absolute',
                 left: `${(seg.startCol / 7) * 100}%`,
@@ -1447,6 +1725,8 @@ export default function CalendarModal() {
                 lineHeight: `${multiDayBarHeight - 2}px`,
                 borderLeft: !seg.isStart && !isTransparent ? 'none' : undefined,
                 boxSizing: 'border-box',
+                pointerEvents: 'auto',
+                cursor: 'grab',
               }}
               title={seg.event.title}
             >
@@ -1523,6 +1803,7 @@ export default function CalendarModal() {
       <div
         key={dateStr}
         ref={cellRefCallback}
+        data-date={!isOtherMonth ? dateStr : undefined}
         onClick={isOtherMonth ? undefined : (e) => {
           e.stopPropagation();
           setSelectedDate(selectedDate === dateStr ? null : dateStr);
@@ -1532,9 +1813,14 @@ export default function CalendarModal() {
           setAddTargetFolderId(null);
           setPendingAiEvents(null);
         }}
+        onDragOver={!isOtherMonth ? (e) => handleDragOver(e, dateStr) : undefined}
+        onDragLeave={!isOtherMonth ? handleDragLeave : undefined}
+        onDrop={!isOtherMonth ? (e) => handleDrop(e, dateStr) : undefined}
         className={`p-px sm:p-1 border-r border-b border-[#E5E7EB] bg-white h-full min-h-0 ${isOtherMonth ? '' : 'cursor-pointer active:scale-[0.95] active:bg-[#f0f0f0]'} transition-all duration-100 overflow-hidden ${
+          dropTarget === dateStr && !isOtherMonth ? 'bg-blue-100 ring-2 ring-blue-400 ring-inset' :
           isSelected ? 'bg-blue-50/30' : !isOtherMonth ? 'hover:bg-gray-50/50' : ''
         }`}
+        style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
       >
         <div className={`flex items-center justify-center sm:justify-start ${textSize === 2 ? 'mb-1' : 'mb-0.5'}`}>
           <span className={`${textSize === 2 ? 'text-base sm:text-lg w-8 h-8' : textSize === 1 ? 'text-sm w-7 h-7' : 'text-xs sm:text-sm w-6 h-6'} inline-flex items-center justify-center rounded-full ${
@@ -1555,7 +1841,12 @@ export default function CalendarModal() {
             {dayEventsForCell.slice(0, maxVisible).map((evt) => (
               <div
                 key={evt.id}
-                className={`flex items-center overflow-hidden whitespace-nowrap${evt.completed ? ' opacity-40 line-through' : ''}`}
+                draggable={true}
+                onDragStart={(e) => { e.stopPropagation(); handleDragStart(e, evt); }}
+                onTouchStart={(e) => handleTouchStart(e, evt)}
+                onTouchMove={(e) => handleTouchMove(e)}
+                onTouchEnd={(e) => handleTouchEnd(e)}
+                className={`flex items-center overflow-hidden whitespace-nowrap${evt.completed ? ' opacity-40 line-through' : ''}${draggingEvent?.id === evt.id ? ' opacity-50 scale-105' : ''}`}
                 style={{
                   height: textSize === 2 ? '23px' : textSize === 1 ? '20px' : '17px',
                   padding: getCategoryColor(evt.event_type).bg === 'transparent' ? '0' : textSize === 2 ? '3px 10px' : textSize === 1 ? '3px 8px' : '2px 6px',
@@ -1566,6 +1857,9 @@ export default function CalendarModal() {
                   backgroundColor: getCategoryColor(evt.event_type).bg === 'transparent' ? 'transparent' : getCategoryColor(evt.event_type).bg,
                   color: getCategoryColor(evt.event_type).text,
                   textOverflow: 'clip',
+                  cursor: 'grab',
+                  transition: 'opacity 0.15s, transform 0.15s',
+                  boxShadow: draggingEvent?.id === evt.id ? '0 4px 12px rgba(0,0,0,0.2)' : undefined,
                 }}
                 title={`${evt.event_time ? formatEventTime(evt.event_time) + ' ' : ''}${evt.title}${evt.amount ? ' ' + formatAmount(evt.amount) : ''}`}
               >
@@ -1850,6 +2144,7 @@ export default function CalendarModal() {
                 width: '300%',
                 transform: `translateX(calc(-33.333% + ${swipeOffset}px))`,
                 backfaceVisibility: 'hidden',
+                touchAction: draggingEvent ? 'none' : 'auto',
               }}
               onTouchStart={handleSwipeStart}
               onTouchMove={handleSwipeMove}
@@ -2722,6 +3017,34 @@ export default function CalendarModal() {
 
 
       </div>
+
+      {/* Touch drag ghost element */}
+      {draggingEvent && touchDragPos && (
+        <div
+          style={{
+            position: 'fixed',
+            left: touchDragPos.x - 60,
+            top: touchDragPos.y - 12,
+            opacity: 0.85,
+            transform: 'scale(1.08)',
+            zIndex: 99998,
+            pointerEvents: 'none',
+            backgroundColor: getCategoryColor(draggingEvent.event_type).bg === 'transparent' ? '#f3f4f6' : getCategoryColor(draggingEvent.event_type).bg,
+            color: getCategoryColor(draggingEvent.event_type).text,
+            borderRadius: '4px',
+            padding: '3px 10px',
+            fontSize: '11px',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+            maxWidth: '140px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {draggingEvent.title}
+        </div>
+      )}
 
       {/* Floating AI Button (draggable) - outside modal content, inside fixed wrapper */}
       {(folderId || userRootFolders.length > 0) && (
