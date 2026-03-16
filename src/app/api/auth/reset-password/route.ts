@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
 import { ensureDb, query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
+import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
   try {
     await ensureDb();
+
+    const ip = getClientIp(request);
+    const rl = checkRateLimit(`reset_password:${ip}`, RATE_LIMITS.PASSWORD_RESET);
+    if (!rl.allowed) {
+      return NextResponse.json({ success: false, error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' }, { status: 429 });
+    }
 
     const body = await request.json();
     const { email, code, newPassword } = body as {

@@ -241,6 +241,7 @@ export async function DELETE(request: NextRequest) {
     if (!jwtPayload) {
       return NextResponse.json({ success: false, error: '인증이 만료되었습니다.' }, { status: 401 });
     }
+    const userId = jwtPayload.userId;
 
     const { searchParams } = new URL(request.url);
     const batchId = searchParams.get('batchId');
@@ -248,12 +249,23 @@ export async function DELETE(request: NextRequest) {
     let result;
     if (batchId) {
       result = await query(
-        `DELETE FROM calendar_events WHERE import_source = $1 AND deleted_at IS NULL`,
-        [batchId]
+        `DELETE FROM calendar_events WHERE import_source = $1 AND deleted_at IS NULL
+         AND folder_id IN (
+           SELECT folder_id FROM user_folders WHERE user_id = $2
+           UNION
+           SELECT id FROM folders WHERE parent_id IN (SELECT folder_id FROM user_folders WHERE user_id = $2)
+         )`,
+        [batchId, userId]
       );
     } else {
       result = await query(
-        `DELETE FROM calendar_events WHERE import_source LIKE 'ics_%' AND deleted_at IS NULL`
+        `DELETE FROM calendar_events WHERE import_source LIKE 'ics_%' AND deleted_at IS NULL
+         AND folder_id IN (
+           SELECT folder_id FROM user_folders WHERE user_id = $1
+           UNION
+           SELECT id FROM folders WHERE parent_id IN (SELECT folder_id FROM user_folders WHERE user_id = $1)
+         )`,
+        [userId]
       );
     }
 
