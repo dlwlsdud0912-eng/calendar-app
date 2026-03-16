@@ -162,9 +162,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'folderId가 필요합니다.' }, { status: 400 });
     }
 
-    // 폴더 권한 확인
+    // 폴더 권한 확인 (user_folders 또는 created_by 기반)
     const folderCheck = await query(
-      `SELECT 1 FROM user_folders WHERE user_id = $1 AND (folder_id = $2 OR folder_id = (SELECT parent_id FROM folders WHERE id = $2))`,
+      `WITH RECURSIVE folder_chain AS (
+        SELECT id, parent_id FROM folders WHERE id = $2
+        UNION ALL
+        SELECT f.id, f.parent_id FROM folders f INNER JOIN folder_chain fc ON f.id = fc.parent_id
+      )
+      SELECT 1 FROM folders WHERE id = $2 AND (
+        created_by = $1
+        OR id IN (
+          SELECT fc.id FROM folder_chain fc
+          INNER JOIN user_folders uf ON uf.folder_id = fc.id
+          WHERE uf.user_id = $1
+        )
+      )
+      LIMIT 1`,
       [userId, folderId]
     );
     if (folderCheck.rows.length === 0) {
