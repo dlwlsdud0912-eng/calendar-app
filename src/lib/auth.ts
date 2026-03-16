@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
+import { NextRequest } from 'next/server';
 
 function getJwtSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
@@ -34,6 +35,16 @@ export async function verifyJwt(token: string): Promise<JwtPayload | null> {
   } catch {
     return null;
   }
+}
+
+export function extractToken(request: NextRequest): string | null {
+  // 1. Authorization: Bearer 헤더 확인
+  const authHeader = request.headers.get('authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  // 2. 쿠키 확인 (기존 웹 방식)
+  return request.cookies.get('nepcon-token')?.value || null;
 }
 
 export async function hashPassword(password: string): Promise<string> {

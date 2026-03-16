@@ -56,7 +56,7 @@ export async function POST(request: Request) {
 
     const response = NextResponse.json({
       success: true,
-      data: { userId: user.id, email: user.email, displayName: user.display_name },
+      data: { userId: user.id, email: user.email, displayName: user.display_name, token },
     });
 
     response.cookies.set('nepcon-token', token, {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, ensureDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
-import { verifyJwt } from '@/lib/auth';
+import { verifyJwt, extractToken } from '@/lib/auth';
 
 // GET - 이벤트 목록 조회
 export async function GET(request: NextRequest) {
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     await ensureDb();
 
     // JWT 인증
-    const jwtToken = request.cookies.get('nepcon-token')?.value;
+    const jwtToken = extractToken(request);
     if (!jwtToken) {
       return NextResponse.json({ success: false, error: '인증이 필요합니다.' }, { status: 401 });
     }
@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
     await ensureDb();
 
     // JWT 인증
-    const jwtToken = request.cookies.get('nepcon-token')?.value;
+    const jwtToken = extractToken(request);
     if (!jwtToken) {
       return NextResponse.json({ success: false, error: '인증이 필요합니다.' }, { status: 401 });
     }
@@ -209,7 +209,7 @@ export async function PUT(request: NextRequest) {
     await ensureDb();
 
     // JWT 인증
-    const jwtToken = request.cookies.get('nepcon-token')?.value;
+    const jwtToken = extractToken(request);
     if (!jwtToken) {
       return NextResponse.json({ success: false, error: '인증이 필요합니다.' }, { status: 401 });
     }
@@ -291,7 +291,7 @@ export async function DELETE(request: NextRequest) {
     await ensureDb();
 
     // JWT 인증
-    const jwtToken = request.cookies.get('nepcon-token')?.value;
+    const jwtToken = extractToken(request);
     if (!jwtToken) {
       return NextResponse.json({ success: false, error: '인증이 필요합니다.' }, { status: 401 });
     }

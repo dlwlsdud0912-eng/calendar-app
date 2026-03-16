@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, createUserContent } from '@google/genai';
 import { query, ensureDb } from '@/lib/db';
-import { verifyJwt } from '@/lib/auth';
+import { verifyJwt, extractToken } from '@/lib/auth';
 
 const CALENDAR_AI_PROMPT = `너는 "캘린더끝판왕"의 AI 일정 관리 도우미다.
 사용자의 자연어 명령을 분석하여 캘린더 작업(추가/수정/삭제/조회)을 정확히 수행한다.
@@ -541,7 +541,7 @@ export async function POST(request: NextRequest) {
     }
 
     // JWT 인증
-    const jwtToken = request.cookies.get('nepcon-token')?.value;
+    const jwtToken = extractToken(request);
     if (!jwtToken) {
       return NextResponse.json({ success: false, error: '인증이 필요합니다.' }, { status: 401 });
     }

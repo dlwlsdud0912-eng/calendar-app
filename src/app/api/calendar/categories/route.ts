@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, ensureDb } from '@/lib/db';
-import { verifyJwt } from '@/lib/auth';
+import { verifyJwt, extractToken } from '@/lib/auth';
 import crypto from 'crypto';
 
 // 기본 카테고리 시드 데이터
@@ -24,7 +24,7 @@ const DEFAULT_KEYWORDS: Record<string, string> = {
 
 /** JWT 인증 헬퍼 - userId를 반환하거나 에러 응답을 반환 */
 async function authenticate(request: NextRequest): Promise<string | NextResponse> {
-  const jwtToken = request.cookies.get('nepcon-token')?.value;
+  const jwtToken = extractToken(request);
   if (!jwtToken) {
     return NextResponse.json({ success: false, error: '인증이 필요합니다.' }, { status: 401 });
   }

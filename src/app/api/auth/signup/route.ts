@@ -89,7 +89,7 @@ export async function POST(request: Request) {
 
     const response = NextResponse.json({
       success: true,
-      data: { userId, email: email.toLowerCase(), displayName },
+      data: { userId, email: email.toLowerCase(), displayName, token },
     });
 
     response.cookies.set('nepcon-token', token, {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, ensureDb } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
-import { verifyJwt } from '@/lib/auth';
+import { verifyJwt, extractToken } from '@/lib/auth';
 
 // ── ICS 파싱 유틸리티 (외부 라이브러리 없이 직접 구현) ──
 
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
   try {
     await ensureDb();
 
-    const jwtToken = request.cookies.get('nepcon-token')?.value;
+    const jwtToken = extractToken(request);
     if (!jwtToken) {
       return NextResponse.json({ success: false, error: '인증이 필요합니다.' }, { status: 401 });
     }
@@ -233,7 +233,7 @@ export async function DELETE(request: NextRequest) {
   try {
     await ensureDb();
 
-    const jwtToken = request.cookies.get('nepcon-token')?.value;
+    const jwtToken = extractToken(request);
     if (!jwtToken) {
       return NextResponse.json({ success: false, error: '인증이 필요합니다.' }, { status: 401 });
     }
