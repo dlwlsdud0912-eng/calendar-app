@@ -109,6 +109,13 @@ export async function initDb() {
     )
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_event_categories_user_id ON event_categories(user_id)`);
+
+  // keywords 컬럼 마이그레이션 (기존 DB에 없을 수 있음)
+  try {
+    await query(`ALTER TABLE event_categories ADD COLUMN IF NOT EXISTS keywords TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    // 이미 존재하면 무시
+  }
 }
 
 let dbInitialized = false;

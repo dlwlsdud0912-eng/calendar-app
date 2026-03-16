@@ -38,11 +38,11 @@ interface EventCategory {
 
 // ── Fallback color mapping (used before categories load) ──
 function getEventTypeColorFallback(eventType: string): { bg: string; text: string } {
-  if (eventType === '계약') return { bg: '#1D4ED8', text: '#ffffff' };
-  if (eventType.startsWith('중도금')) return { bg: '#2563EB', text: '#ffffff' };
-  if (eventType === '잔금') return { bg: '#059669', text: '#ffffff' };
-  if (eventType === '안내') return { bg: '#7C3AED', text: '#ffffff' };
-  if (eventType === '상담') return { bg: '#0F766E', text: '#ffffff' };
+  if (eventType === '약속') return { bg: '#1D4ED8', text: '#ffffff' };
+  if (eventType === '업무') return { bg: '#2563EB', text: '#ffffff' };
+  if (eventType === '운동') return { bg: '#059669', text: '#ffffff' };
+  if (eventType === '공부') return { bg: '#7C3AED', text: '#ffffff' };
+  if (eventType === '여행') return { bg: '#0F766E', text: '#ffffff' };
   return { bg: '#E5E7EB', text: '#111827' };
 }
 
@@ -66,17 +66,11 @@ const COLOR_PRESETS: { bg: string; text: string }[] = [
 
 // ── Detect event type from title ──
 function detectEventType(title: string): string {
-  if (title.includes('계약')) return '계약';
-  if (title.includes('중도금')) {
-    if (title.includes('1차')) return '중도금1차';
-    if (title.includes('2차')) return '중도금2차';
-    if (title.includes('3차')) return '중도금3차';
-    if (title.includes('4차')) return '중도금4차';
-    return '중도금1차';
-  }
-  if (title.includes('잔금')) return '잔금';
-  if (title.includes('안내') || title.includes('견학') || title.includes('방문')) return '안내';
-  if (title.includes('상담')) return '상담';
+  if (title.includes('약속') || title.includes('만남') || title.includes('모임')) return '약속';
+  if (title.includes('업무') || title.includes('회의') || title.includes('미팅') || title.includes('출장')) return '업무';
+  if (title.includes('운동') || title.includes('헬스') || title.includes('요가') || title.includes('러닝')) return '운동';
+  if (title.includes('공부') || title.includes('스터디') || title.includes('강의') || title.includes('수업')) return '공부';
+  if (title.includes('여행') || title.includes('휴가')) return '여행';
   return '일상';
 }
 
@@ -2135,7 +2129,7 @@ export default function CalendarModal() {
                             onChange={(e) => setEditEventType(e.target.value)}
                             className={`px-2 py-1.5 ${textSize === 2 ? 'text-base' : textSize === 1 ? 'text-[15px]' : 'text-sm'} border border-[#e3e2e0] rounded-md focus:outline-none focus:ring-1 focus:ring-[#2eaadc]/50 text-[#37352f]`}
                           >
-                            {(categories.length > 0 ? categories.map(c => c.name) : ['계약', '중도금', '잔금', '안내', '상담', '일상']).map((t) => (
+                            {(categories.length > 0 ? categories.map(c => c.name) : ['약속', '업무', '운동', '공부', '여행', '일상']).map((t) => (
                               <option key={t} value={t}>
                                 {t}
                               </option>
@@ -2672,20 +2666,35 @@ export default function CalendarModal() {
                         onClick={async () => {
                           if (!newCatName.trim() || catSaving) return;
                           setCatSaving(true);
+                          // 낙관적 업데이트: UI 즉시 반영
+                          const optimisticId = `optimistic-${Date.now()}`;
+                          const optimisticCat = {
+                            id: optimisticId,
+                            name: newCatName.trim(),
+                            colorBg: newCatBg,
+                            colorText: newCatText,
+                            sortOrder: 9999,
+                            isDefault: false,
+                            keywords: newCatKeywords,
+                          };
+                          setCategories(prev => [...prev, optimisticCat]);
+                          setAddingNewCategory(false);
+                          setNewCatName('');
+                          setNewCatKeywords('');
+                          setNewCatBg('#f3f4f6');
+                          setNewCatText('#374151');
                           try {
                             await fetch('/api/calendar/categories', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ name: newCatName.trim(), colorBg: newCatBg, colorText: newCatText, keywords: newCatKeywords }),
+                              body: JSON.stringify({ name: optimisticCat.name, colorBg: optimisticCat.colorBg, colorText: optimisticCat.colorText, keywords: optimisticCat.keywords }),
                             });
+                            // 서버 응답으로 정확한 데이터로 교체
                             await fetchCategories();
-                            setAddingNewCategory(false);
-                            setNewCatName('');
-                            setNewCatKeywords('');
-                            setNewCatBg('#f3f4f6');
-                            setNewCatText('#374151');
                           } catch (err) {
                             console.error('Failed to create category:', err);
+                            // 실패 시 낙관적 항목 제거
+                            setCategories(prev => prev.filter(c => c.id !== optimisticId));
                           } finally {
                             setCatSaving(false);
                           }

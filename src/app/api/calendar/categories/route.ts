@@ -5,21 +5,21 @@ import crypto from 'crypto';
 
 // 기본 카테고리 시드 데이터
 const DEFAULT_CATEGORIES = [
-  { name: '계약', colorBg: '#1D4ED8', colorText: '#ffffff', sortOrder: 0, keywords: '계약,계약서,계약금' },
-  { name: '중도금', colorBg: '#2563EB', colorText: '#ffffff', sortOrder: 1, keywords: '중도금,중도' },
-  { name: '잔금', colorBg: '#059669', colorText: '#ffffff', sortOrder: 2, keywords: '잔금' },
-  { name: '안내', colorBg: '#7C3AED', colorText: '#ffffff', sortOrder: 3, keywords: '안내,공지,통보' },
-  { name: '상담', colorBg: '#0F766E', colorText: '#ffffff', sortOrder: 4, keywords: '상담,미팅,회의' },
+  { name: '약속', colorBg: '#1D4ED8', colorText: '#ffffff', sortOrder: 0, keywords: '약속,만남,모임' },
+  { name: '업무', colorBg: '#2563EB', colorText: '#ffffff', sortOrder: 1, keywords: '업무,회의,미팅,출장' },
+  { name: '운동', colorBg: '#059669', colorText: '#ffffff', sortOrder: 2, keywords: '운동,헬스,요가,러닝' },
+  { name: '공부', colorBg: '#7C3AED', colorText: '#ffffff', sortOrder: 3, keywords: '공부,스터디,강의,수업' },
+  { name: '여행', colorBg: '#0F766E', colorText: '#ffffff', sortOrder: 4, keywords: '여행,휴가,출장' },
   { name: '일상', colorBg: '#E5E7EB', colorText: '#111827', sortOrder: 5, keywords: '' },
 ];
 
 // 기존 유저의 기본 카테고리 keywords 백필용
 const DEFAULT_KEYWORDS: Record<string, string> = {
-  '계약': '계약,계약서,계약금',
-  '중도금': '중도금,중도',
-  '잔금': '잔금',
-  '안내': '안내,공지,통보',
-  '상담': '상담,미팅,회의',
+  '약속': '약속,만남,모임',
+  '업무': '업무,회의,미팅,출장',
+  '운동': '운동,헬스,요가,러닝',
+  '공부': '공부,스터디,강의,수업',
+  '여행': '여행,휴가,출장',
 };
 
 /** JWT 인증 헬퍼 - userId를 반환하거나 에러 응답을 반환 */
@@ -52,13 +52,6 @@ async function getTeamMemberIds(userId: string): Promise<string[]> {
 export async function GET(request: NextRequest) {
   try {
     await ensureDb();
-
-    // keywords 컬럼 안전하게 추가 (없으면 추가)
-    try {
-      await query(`ALTER TABLE event_categories ADD COLUMN IF NOT EXISTS keywords TEXT NOT NULL DEFAULT ''`);
-    } catch {
-      // 이미 존재하면 무시
-    }
 
     const authResult = await authenticate(request);
     if (authResult instanceof NextResponse) return authResult;

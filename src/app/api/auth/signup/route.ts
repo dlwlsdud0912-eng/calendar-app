@@ -20,11 +20,19 @@ export async function POST(request: Request) {
     await ensureDb();
 
     const body = await request.json();
-    const { email, password, displayName } = body as {
+    const { email, password, displayName, agreeTerms } = body as {
       email?: string;
       password?: string;
       displayName?: string;
+      agreeTerms?: boolean;
     };
+
+    if (agreeTerms !== true) {
+      return NextResponse.json(
+        { success: false, error: '이용약관에 동의해주세요.' },
+        { status: 400 }
+      );
+    }
 
     if (!email || !password || !displayName) {
       return NextResponse.json(
